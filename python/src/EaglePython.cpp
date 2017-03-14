@@ -1,6 +1,7 @@
 #include <Aquila/Nodes/Node.h>
 #include <Aquila/Nodes/IFrameGrabber.hpp>
 #include <Aquila/IDataStream.hpp>
+#include <Aquila/Nodes/NodeFactory.h>
 
 #include <boost/python.hpp>
 #include <boost/python/raw_function.hpp>
@@ -16,18 +17,19 @@ using namespace aq;
 std::vector<std::string> ListConstructableNodes(std::string filter)
 {
     std::vector<std::string> output;
-    auto nodes = aq::NodeManager::getInstance().getConstructableNodes();
-    for(auto& node : nodes)
+	auto constructors = mo::MetaObjectFactory::Instance()->GetConstructors<aq::Nodes::Node>();
+
+    for(auto constructor : constructors)
     {
         if(filter.size())
         {
-            if(node.find(filter) != std::string::npos)
+            if(std::string(constructor->GetName()).find(filter) != std::string::npos)
             {
-                output.push_back(node);
+                output.emplace_back(constructor->GetName());
             }
         }else
         {
-            output.push_back(node);
+			output.emplace_back(constructor->GetName());
         }
     }
     return output;
@@ -38,30 +40,7 @@ std::vector<std::string> ListConstructableNodes1()
 }
 std::vector<std::string> ListDevices()
 {
-    std::vector<std::string> output;
-    auto constructors = EagleLib::ObjectManager::Instance().GetConstructorsForInterface(IID_FrameGrabber);
-    for(auto constructor : constructors)
-    {
-        auto info = constructor->GetObjectInfo();
-        if(info)
-        {
-            auto fg_info = dynamic_cast<EagleLib::FrameGrabberInfo*>(info);
-            if(fg_info)
-            {
-                auto devices = fg_info->ListLoadableDocuments();
-                if(devices.size())
-                {
-                    std::stringstream ss;
-                    ss << fg_info->GetObjectName() << " can load:\n";
-                    for(auto& device : devices)
-                    {
-                        output.push_back(device);
-                    }
-                }
-            }
-        }                
-    }
-    return output;
+	return aq::Nodes::IFrameGrabber::ListAllLoadableDocuments();
 }
 
 std::vector<std::string> ListHistory()
@@ -72,10 +51,10 @@ std::vector<std::string> ListHistory()
 rcc::shared_ptr<IDataStream> open_datastream(string source)
 {
     std::string doc = source;
-    if(EagleLib::IDataStream::CanLoadDocument(doc))
+    if(aq::IDataStream::CanLoadDocument(doc))
     {
         LOG(debug) << "Found a frame grabber which can load " << doc;
-        auto stream = EagleLib::IDataStream::create(doc);
+        auto stream = aq::IDataStream::Create(doc);
         if(stream->LoadDocument(doc))
         {
             stream->StartThread();
@@ -93,7 +72,7 @@ rcc::shared_ptr<IDataStream> open_datastream(string source)
 
 rcc::shared_ptr<Nodes::Node> create_node(string name)
 {
-    return EagleLib::NodeManager::getInstance().addNode(name);
+	return mo::MetaObjectFactory::Instance()->Create(name.c_str());
 }
 
 namespace boost
@@ -108,13 +87,33 @@ namespace boost
 }
 namespace rcc
 {
-    template<typename T> T* get_pointer(rcc::shared_ptr<T> const& p)
+	template<typename T> T* get_pointer(rcc::shared_ptr<T> & p)
+	{
+		return p.Get();
+	}
+    template<typename T> const T* get_pointer(const rcc::shared_ptr<T> & p)
     {
-        return p.get();
+        return p.Get();
     }
-
+	template<typename T> T* get_pointer(rcc::weak_ptr<T> & p)
+	{
+		return p.Get();
+	}
+	template<typename T> const T* get_pointer(const rcc::weak_ptr<T> & p)
+	{
+		return p.Get();
+	}
 }
-
+namespace aq
+{
+	namespace Nodes
+	{
+		Node* get_pointer(Node* ptr)
+		{
+			return ptr;
+		}
+	}
+}
 
 BOOST_PYTHON_MODULE(EaglePython)
 {
@@ -131,7 +130,7 @@ BOOST_PYTHON_MODULE(EaglePython)
         //.def("GetFullName", &EagleLib::Nodes::Node::getFullTreeName);
         //.def("GetParameters", &EagleLib::Nodes::Node::getParameters);
 
-    boost::python::class_<EagleLib::Nodes::Node, rcc::shared_ptr<EagleLib::Nodes::Node>, boost::noncopyable>("Node", boost::python::no_init)
+    boost::python::class_<aq::Nodes::Node, rcc::shared_ptr<aq::Nodes::Node>, boost::noncopyable>("Node", boost::python::no_init)
         .def("__init__", boost::python::make_constructor(&create_node));
 
 
@@ -141,9 +140,9 @@ BOOST_PYTHON_MODULE(EaglePython)
     
     //boost::python::register_ptr_to_python<rcc::shared_ptr<EagleLib::DataStream>>();
 
-    boost::python::register_ptr_to_python<rcc::shared_ptr<EagleLib::Nodes::Node>>();
+    boost::python::register_ptr_to_python<rcc::shared_ptr<aq::Nodes::Node>>();
 
-    boost::python::class_<vector<Parameters::Parameter*>>("ParamVec")
-        .def(boost::python::vector_indexing_suite<vector<Parameters::Parameter*>, true>());
+    boost::python::class_<vector<mo::IParameter*>>("ParamVec")
+        .def(boost::python::vector_indexing_suite<vector<mo::IParameter*>, true>());
 
 }
